@@ -1,0 +1,20 @@
+[project]
+name = "courtbee-voice-eval"
+version = "0.1.0"
+description = "Compares LLMs on turning a spoken Slovak booking request into a Courtbee reservation"
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=1.109",
+    "pydantic>=2",
+    "python-dotenv>=1.2.3",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
