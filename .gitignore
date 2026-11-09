@@ -2,5 +2,6 @@
 __pycache__/
 .ipynb_checkpoints/
 .pytest_cache/
+.gradio/
 .DS_Store
 .env

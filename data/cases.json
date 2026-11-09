@@ -1,0 +1,135 @@
+{
+  "context": {
+    "now": "2026-11-08T10:00",
+    "weekday": "nedeľa",
+    "timezone": "Europe/Bratislava",
+    "opening_hours": {"open": "07:00", "close": "22:00"},
+    "courts": [
+      {"id": 1, "name": "Kurt 1"},
+      {"id": 2, "name": "Kurt 2"},
+      {"id": 3, "name": "Kurt 3"},
+      {"id": 4, "name": "Centrálny kurt"}
+    ]
+  },
+  "rules": [
+    "The model returns date, start, duration_min, court and question.",
+    "null means the model must ask the player for that field instead of guessing.",
+    "question is a Slovak question to the player. It is present exactly when at least one field is null. Its wording is not graded.",
+    "court is \"any\" when the player does not care or does not mention a court; the booking code then takes the first free court.",
+    "duration_min is null when the player does not say how long; duration changes the price, so it is never assumed.",
+    "An hour said without a part of day, such as \"o piatej\", takes the reading that falls inside opening hours and is not in the past. When both readings are possible, start is null.",
+    "An explicit time such as \"o 22:00\" or \"o pol desiatej večer\" is taken literally, even outside opening hours; availability is checked by code, not by the model.",
+    "When the player corrects themself, the last value wins.",
+    "A follow-up starts from the case's expected state, the question asked and the player's answer. The model returns the whole updated state. Fields the answer does not touch keep their previous value; the answer may change any field."
+  ],
+  "cases": [
+    {"id": 1, "text": "Zajtra o pol piatej dvojku na hodinu.", "expected": {"date": "2026-11-09", "start": "16:30", "duration_min": 60, "court": 2}, "tags": ["relative-date", "half-past", "bare-hour"]},
+    {"id": 2, "text": "Chcel by som kurt v utorok o piatej na hodinu a pol, je mi jedno ktorý.", "expected": {"date": "2026-11-10", "start": "17:00", "duration_min": 90, "court": "any"}, "tags": ["weekday", "bare-hour", "court-any"]},
+    {"id": 3, "text": "Pozajtra o šiestej večer na dve hodiny, kurt číslo 3.", "expected": {"date": "2026-11-10", "start": "18:00", "duration_min": 120, "court": 3}, "tags": ["relative-date", "explicit-part-of-day"]},
+    {"id": 4, "text": "V sobotu o desiatej trojku na hoďku.", "expected": {"date": "2026-11-14", "start": "10:00", "duration_min": 60, "court": 3}, "tags": ["weekday", "bare-hour", "colloquial-duration"], "note": "22:00 is closing time, so only 10:00 is possible."},
+    {"id": 5, "text": "Na centrálny zajtra od piatej do siedmej.", "expected": {"date": "2026-11-09", "start": "17:00", "duration_min": 120, "court": 4}, "tags": ["relative-date", "range", "court-name"]},
+    {"id": 6, "text": "Štvrtok, štvrť na sedem, jednotka, hodina.", "expected": {"date": "2026-11-12", "start": "18:15", "duration_min": 60, "court": 1}, "tags": ["weekday", "quarter", "bare-hour"], "note": "Štvrť na sedem is 6:15; 06:15 is before opening."},
+    {"id": 7, "text": "Dnes o trištvrte na šesť dvojku na hodinu.", "expected": {"date": "2026-11-08", "start": "17:45", "duration_min": 60, "court": 2}, "tags": ["relative-date", "quarter", "bare-hour"], "note": "Trištvrte na šesť is 5:45."},
+    {
+      "id": 8, "text": "Budúci pondelok o piatej dvojku na hodinu.",
+      "expected": {"date": null, "start": "17:00", "duration_min": 60, "court": 2},
+      "tags": ["weekday", "must-ask"], "note": "Said on Sunday: tomorrow 9. 11. or 16. 11. People use both.",
+      "followups": [
+        {"question": "Myslíte zajtra 9. 11., alebo pondelok 16. 11.?", "answer": "Ten šestnásteho.", "expected": {"date": "2026-11-16", "start": "17:00", "duration_min": 60, "court": 2}, "tags": ["choice"]},
+        {"question": "Myslíte zajtra 9. 11., alebo pondelok 16. 11.?", "answer": "zajtra", "expected": {"date": "2026-11-09", "start": "17:00", "duration_min": 60, "court": 2}, "tags": ["choice", "relative-date"]}
+      ]
+    },
+    {
+      "id": 9, "text": "Zajtra večer na hodinu dvojku.",
+      "expected": {"date": "2026-11-09", "start": null, "duration_min": 60, "court": 2},
+      "tags": ["relative-date", "must-ask"],
+      "followups": [
+        {"question": "O koľkej večer?", "answer": "o pol siedmej", "expected": {"date": "2026-11-09", "start": "18:30", "duration_min": 60, "court": 2}, "tags": ["needs-context", "half-past"]},
+        {"question": "O koľkej večer?", "answer": "o ôsmej", "expected": {"date": "2026-11-09", "start": "20:00", "duration_min": 60, "court": 2}, "tags": ["needs-context"], "note": "Alone it would be ambiguous; the question already says evening."}
+      ]
+    },
+    {
+      "id": 10, "text": "V stredu o ôsmej na hodinu, jednotku.",
+      "expected": {"date": "2026-11-11", "start": null, "duration_min": 60, "court": 1},
+      "tags": ["weekday", "bare-hour", "must-ask"], "note": "08:00 and 20:00 are both open.",
+      "followups": [
+        {"question": "V stredu ráno o 8:00, alebo večer o 20:00?", "answer": "večer, a radšej na dvojke", "expected": {"date": "2026-11-11", "start": "20:00", "duration_min": 60, "court": 2}, "tags": ["choice", "changes-other-field"]}
+      ]
+    },
+    {"id": 11, "text": "Pätnásteho novembra o štvrtej na hodinu a pol trojku.", "expected": {"date": "2026-11-15", "start": "16:00", "duration_min": 90, "court": 3}, "tags": ["calendar-date", "bare-hour"]},
+    {"id": 12, "text": "Na Mikuláša o piatej na dve hoďky, hocijaký kurt.", "expected": {"date": "2026-12-06", "start": "17:00", "duration_min": 120, "court": "any"}, "tags": ["holiday", "bare-hour", "colloquial-duration", "court-any"]},
+    {
+      "id": 13, "text": "Ten istý kurt ako minule, zajtra o piatej na hodinu.",
+      "expected": {"date": "2026-11-09", "start": "17:00", "duration_min": 60, "court": null},
+      "tags": ["relative-date", "must-ask"], "note": "The model does not know the previous booking.",
+      "followups": [
+        {"question": "Ktorý kurt chcete?", "answer": "je mi to jedno", "expected": {"date": "2026-11-09", "start": "17:00", "duration_min": 60, "court": "any"}, "tags": ["court-any"]},
+        {"question": "Ktorý kurt chcete?", "answer": "trojku", "expected": {"date": "2026-11-09", "start": "17:00", "duration_min": 60, "court": 3}, "tags": ["court-number"]}
+      ]
+    },
+    {"id": 14, "text": "Zajtra o piatej, nie počkaj, o šiestej, dvojku na hodinu.", "expected": {"date": "2026-11-09", "start": "18:00", "duration_min": 60, "court": 2}, "tags": ["relative-date", "self-correction"]},
+    {"id": 15, "text": "zajtra o pol piatej dvojku na hodku", "expected": {"date": "2026-11-09", "start": "16:30", "duration_min": 60, "court": 2}, "tags": ["no-diacritics", "half-past", "colloquial-duration"]},
+    {"id": 16, "text": "v piatok o siedmej vecer trojku na hodinu a pol", "expected": {"date": "2026-11-13", "start": "19:00", "duration_min": 90, "court": 3}, "tags": ["no-diacritics", "weekday", "explicit-part-of-day"]},
+    {"id": 17, "text": "Piatok o 18:30, štvorku, 90 minút.", "expected": {"date": "2026-11-13", "start": "18:30", "duration_min": 90, "court": 4}, "tags": ["weekday", "explicit-time"]},
+    {
+      "id": 18, "text": "Cez víkend niekedy poobede na hodinu.",
+      "expected": {"date": null, "start": null, "duration_min": 60, "court": "any"},
+      "tags": ["must-ask", "court-any"],
+      "followups": [
+        {"question": "V sobotu, alebo v nedeľu, a o koľkej?", "answer": "v sobotu o tretej", "expected": {"date": "2026-11-14", "start": "15:00", "duration_min": 60, "court": "any"}, "tags": ["two-answers", "bare-hour"]}
+      ]
+    },
+    {
+      "id": 19, "text": "Chcem si zarezervovať kurt.",
+      "expected": {"date": null, "start": null, "duration_min": null, "court": "any"},
+      "tags": ["must-ask", "court-any"],
+      "followups": [
+        {"question": "Na ktorý deň, o koľkej a na ako dlho?", "answer": "zajtra o piatej", "expected": {"date": "2026-11-09", "start": "17:00", "duration_min": null, "court": "any"}, "tags": ["partial-answer", "bare-hour"], "note": "Duration is still missing, so the model asks again."},
+        {"question": "Na ktorý deň, o koľkej a na ako dlho?", "answer": "v piatok od piatej do siedmej na centrálnom", "expected": {"date": "2026-11-13", "start": "17:00", "duration_min": 120, "court": 4}, "tags": ["range", "changes-other-field", "court-name"]}
+      ]
+    },
+    {"id": 20, "text": "Zajtra o jednej na hodinu.", "expected": {"date": "2026-11-09", "start": "13:00", "duration_min": 60, "court": "any"}, "tags": ["relative-date", "bare-hour", "court-any"]},
+    {"id": 21, "text": "O siedmej ráno v pondelok, jednotku na hodinu.", "expected": {"date": "2026-11-09", "start": "07:00", "duration_min": 60, "court": 1}, "tags": ["weekday", "explicit-part-of-day"]},
+    {"id": 22, "text": "V pondelok o pol ôsmej večer na hodinu.", "expected": {"date": "2026-11-09", "start": "19:30", "duration_min": 60, "court": "any"}, "tags": ["weekday", "half-past", "explicit-part-of-day", "court-any"]},
+    {"id": 23, "text": "Dvadsiateho o šiestej na dve hodiny dvojku.", "expected": {"date": "2026-11-20", "start": "18:00", "duration_min": 120, "court": 2}, "tags": ["calendar-date", "bare-hour"]},
+    {"id": 24, "text": "Zajtra o 17-tej na hodinku.", "expected": {"date": "2026-11-09", "start": "17:00", "duration_min": 60, "court": "any"}, "tags": ["relative-date", "explicit-time", "colloquial-duration", "court-any"]},
+    {"id": 25, "text": "Dnes o deviatej večer na hodinu jednotku.", "expected": {"date": "2026-11-08", "start": "21:00", "duration_min": 60, "court": 1}, "tags": ["relative-date", "explicit-part-of-day"]},
+    {"id": 26, "text": "Dnes o deviatej na hodinu.", "expected": {"date": "2026-11-08", "start": "21:00", "duration_min": 60, "court": "any"}, "tags": ["relative-date", "bare-hour", "court-any"], "note": "It is 10:00, so 09:00 has already passed."},
+    {"id": 27, "text": "Zajtra od pol šiestej do siedmej na trojke.", "expected": {"date": "2026-11-09", "start": "17:30", "duration_min": 90, "court": 3}, "tags": ["relative-date", "range", "half-past"]},
+    {"id": 28, "text": "Na sobotu ráno o pol deviatej, dvojka, hodina a pol.", "expected": {"date": "2026-11-14", "start": "08:30", "duration_min": 90, "court": 2}, "tags": ["weekday", "half-past", "explicit-part-of-day"]},
+    {
+      "id": 29, "text": "V nedeľu o štvrtej na hodinu.",
+      "expected": {"date": null, "start": "16:00", "duration_min": 60, "court": "any"},
+      "tags": ["weekday", "must-ask", "court-any"], "note": "Said on Sunday: today or 15. 11.",
+      "followups": [
+        {"question": "Dnes, alebo budúcu nedeľu 15. 11.?", "answer": "dnes", "expected": {"date": "2026-11-08", "start": "16:00", "duration_min": 60, "court": "any"}, "tags": ["choice", "relative-date"]}
+      ]
+    },
+    {"id": 30, "text": "Zajtra o piatej na pol hodiny.", "expected": {"date": "2026-11-09", "start": "17:00", "duration_min": 30, "court": "any"}, "tags": ["relative-date", "bare-hour", "court-any"]},
+    {"id": 31, "text": "Zajtra o 22:00 na hodinu.", "expected": {"date": "2026-11-09", "start": "22:00", "duration_min": 60, "court": "any"}, "tags": ["explicit-time", "outside-hours", "court-any"], "note": "Closed at that time; the booking code rejects it, the model must not change it."},
+    {"id": 32, "text": "Zajtra o piatej na hodinu. Vlastne nie, pozajtra.", "expected": {"date": "2026-11-10", "start": "17:00", "duration_min": 60, "court": "any"}, "tags": ["self-correction", "relative-date", "court-any"]},
+    {"id": 33, "text": "Prvého decembra o šiestej na hodinu a pol dvojku.", "expected": {"date": "2026-12-01", "start": "18:00", "duration_min": 90, "court": 2}, "tags": ["calendar-date", "bare-hour"]},
+    {"id": 34, "text": "ahoj chcel by som dvojku zajtra o pol siedmej vecer na hodinku dakujem", "expected": {"date": "2026-11-09", "start": "18:30", "duration_min": 60, "court": 2}, "tags": ["no-diacritics", "half-past", "filler"]},
+    {
+      "id": 35, "text": "V stredu na hodinu a pol.",
+      "expected": {"date": "2026-11-11", "start": null, "duration_min": 90, "court": "any"},
+      "tags": ["weekday", "must-ask", "court-any"],
+      "followups": [
+        {"question": "O koľkej?", "answer": "nejako večer", "expected": {"date": "2026-11-11", "start": null, "duration_min": 90, "court": "any"}, "tags": ["still-unclear"], "note": "Evening is not a time, so the model asks again."}
+      ]
+    },
+    {
+      "id": 36, "text": "Zajtra o piatej dvojku.",
+      "expected": {"date": "2026-11-09", "start": "17:00", "duration_min": null, "court": 2},
+      "tags": ["relative-date", "must-ask"],
+      "followups": [
+        {"question": "Na ako dlho?", "answer": "na hodinu a pol", "expected": {"date": "2026-11-09", "start": "17:00", "duration_min": 90, "court": 2}, "tags": ["duration"]},
+        {"question": "Na ako dlho?", "answer": "na hodinu, a vlastne až o šiestej", "expected": {"date": "2026-11-09", "start": "18:00", "duration_min": 60, "court": 2}, "tags": ["changes-other-field", "self-correction"]}
+      ]
+    },
+    {"id": 37, "text": "Štvrtok o pol jednej na dve hodiny trojku.", "expected": {"date": "2026-11-12", "start": "12:30", "duration_min": 120, "court": 3}, "tags": ["weekday", "half-past", "bare-hour"], "note": "Pol jednej is 12:30 or 00:30; only 12:30 is open."},
+    {"id": 38, "text": "Zajtra o sedemnástej tridsať na hodinu, jednotku.", "expected": {"date": "2026-11-09", "start": "17:30", "duration_min": 60, "court": 1}, "tags": ["relative-date", "explicit-time", "number-words"]},
+    {"id": 39, "text": "Dvadsiateho siedmeho novembra o piatej na hodinu.", "expected": {"date": "2026-11-27", "start": "17:00", "duration_min": 60, "court": "any"}, "tags": ["calendar-date", "bare-hour", "court-any"]},
+    {"id": 40, "text": "Kurt na zajtra o pol desiatej večer na hodinu.", "expected": {"date": "2026-11-09", "start": "21:30", "duration_min": 60, "court": "any"}, "tags": ["relative-date", "half-past", "explicit-part-of-day", "outside-hours", "court-any"], "note": "Ends 22:30, after closing; the booking code rejects it."}
+  ]
+}

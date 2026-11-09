@@ -1,0 +1,10 @@
+{
+  "timezone": "Europe/Bratislava",
+  "opening_hours": {"open": "07:00", "close": "22:00"},
+  "courts": [
+    {"id": 1, "name": "Kurt 1"},
+    {"id": 2, "name": "Kurt 2"},
+    {"id": 3, "name": "Kurt 3"},
+    {"id": 4, "name": "Centrálny kurt"}
+  ]
+}

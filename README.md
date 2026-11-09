@@ -23,3 +23,13 @@ cp .env.example .env
 ```
 
 All hosted models go through OpenRouter with the `openai` client library. The local model runs behind any OpenAI-compatible server, such as `mlx_lm.server`.
+
+## Courtbee Voice Manager
+
+A Gradio UI with a chat on the left and the current reservation on the right.
+
+```bash
+uv run python -m courtbee_voice_eval.app
+```
+
+The chat calls `reply()` in `courtbee_voice_eval/assistant.py`, which takes the player's message and the current `Reservation` and returns the answer and the updated `Reservation`.
