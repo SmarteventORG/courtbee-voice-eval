@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from openai.types.chat import ChatCompletion
 from pydantic import ValidationError
 
 from courtbee_voice_eval.reservation import (
@@ -78,8 +79,9 @@ Player: "o štvrtej"
 
 
 @cache
-def get_client() -> OpenAI:
-    return OpenAI(base_url=OPENROUTER_URL, api_key=os.environ["OPENROUTER_API_KEY"])
+def get_client(base_url: str = OPENROUTER_URL) -> OpenAI:
+    api_key = os.environ["OPENROUTER_API_KEY"] if base_url == OPENROUTER_URL else "local"
+    return OpenAI(base_url=base_url, api_key=api_key)
 
 
 def build_user_message(message: str, reservation: Reservation, now: datetime, facility: dict) -> str:
@@ -94,18 +96,26 @@ def build_user_message(message: str, reservation: Reservation, now: datetime, fa
     )
 
 
-def extract(
+def complete(
     message: str,
     reservation: Reservation,
     now: datetime,
     facility: dict,
-    model: str | None = None,
-) -> Reservation:
-    extra_body: dict = {"reasoning": {"effort": os.getenv("LLM_REASONING_EFFORT", "none")}}
-    if provider := os.getenv("LLM_PROVIDER"):
-        extra_body["provider"] = {"order": [provider], "allow_fallbacks": False}
-    response = get_client().chat.completions.create(
-        model=model or os.getenv("LLM_MODEL", DEFAULT_MODEL),
+    model: str,
+    provider: str | None = None,
+    effort: str | None = None,
+    base_url: str = OPENROUTER_URL,
+) -> ChatCompletion:
+    extra_body: dict = {}
+    if base_url == OPENROUTER_URL:
+        if effort:
+            extra_body["reasoning"] = {"effort": effort}
+        if provider:
+            extra_body["provider"] = {"order": [provider], "allow_fallbacks": False}
+    elif effort:
+        extra_body["chat_template_kwargs"] = {"enable_thinking": effort != "none"}
+    return get_client(base_url).chat.completions.create(
+        model=model,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": build_user_message(message, reservation, now, facility)},
@@ -114,7 +124,23 @@ def extract(
         temperature=0,
         extra_body=extra_body,
     )
+
+
+def parse(response: ChatCompletion) -> Reservation:
     return Reservation.model_validate_json(response.choices[0].message.content or "")
+
+
+def extract(message: str, reservation: Reservation, now: datetime, facility: dict) -> Reservation:
+    response = complete(
+        message,
+        reservation,
+        now,
+        facility,
+        model=os.getenv("LLM_MODEL", DEFAULT_MODEL),
+        provider=os.getenv("LLM_PROVIDER") or None,
+        effort=os.getenv("LLM_REASONING_EFFORT", "none"),
+    )
+    return parse(response)
 
 
 def summarize(reservation: Reservation) -> str:

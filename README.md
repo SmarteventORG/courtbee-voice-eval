@@ -34,3 +34,34 @@ uv run python -m courtbee_voice_eval.app
 ```
 
 The chat calls `reply()` in `courtbee_voice_eval/assistant.py`, which takes the player's message and the current `Reservation` and returns the answer and the updated `Reservation`.
+
+## Evaluation
+
+```bash
+uv run python -m courtbee_voice_eval.evaluate data/dev_cases.json \
+  --model "deepseek/deepseek-v4.1-flash-20260910@together#none" \
+  --model "google/gemini-3.8-flash#low" \
+  --repeats 3
+```
+
+Each `--model` is `model[@provider][#effort]`:
+
+- `@provider` pins one OpenRouter provider with no fallback. Without it, OpenRouter picks a provider per call, and the answers can differ between providers.
+- `#effort` sets the reasoning effort (`none`, `low`, `medium`, …). Without it, the model's API default applies.
+- `local:<model>[#effort]` calls the server in `LOCAL_LLM_SERVER` instead of OpenRouter.
+
+With no `--model`, the run uses `LLM_MODEL`, `LLM_PROVIDER` and `LLM_REASONING_EFFORT` from `.env`.
+
+Every case and every follow-up is one turn. Each turn gets one outcome:
+
+| Outcome | Meaning | What it costs Courtbee |
+|---|---|---|
+| `correct` | all four fields match, and the model asks exactly when a field is missing | nothing |
+| `silent_wrong` | the model asks nothing, and the reservation is wrong | a wrong booking nobody notices |
+| `wrong_value` | the model asks, but a field it filled is wrong | a wrong booking after the answer, unless the player notices |
+| `unnecessary_question` | the model asks about something the player already said | one extra round of conversation |
+| `invalid` | API error or JSON that does not fit the schema | the player has to repeat |
+
+The run prints the failed turns and a summary per model, and writes every turn to `results/<run>_<cases>.csv` with latency, tokens, cost and the provider that served it. Latency is the time of the whole call, not the time to the first token.
+
+Tune the prompt on `data/dev_cases.json`. Run `data/cases.json` only to compare finished prompts and models.
