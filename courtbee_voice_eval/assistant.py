@@ -138,7 +138,7 @@ def extract(message: str, reservation: Reservation, now: datetime, facility: dic
         facility,
         model=os.getenv("LLM_MODEL", DEFAULT_MODEL),
         provider=os.getenv("LLM_PROVIDER") or None,
-        effort=os.getenv("LLM_REASONING_EFFORT", "none"),
+        effort=os.getenv("LLM_REASONING_EFFORT", "low"),
     )
     return parse(response)
 
