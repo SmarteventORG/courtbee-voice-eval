@@ -1,11 +1,9 @@
 import gradio as gr
 
 from courtbee_voice_eval.assistant import reply
-from courtbee_voice_eval.reservation import Reservation, format_court, format_date
+from courtbee_voice_eval.reservation import FIELD_LABELS, Reservation, format_court, format_date
 
 TITLE = "Courtbee Voice Manager"
-
-FIELD_LABELS = {"date": "dátum", "start": "čas", "duration_min": "dĺžka", "court": "kurt"}
 
 
 def render_reservation(reservation: Reservation) -> str:

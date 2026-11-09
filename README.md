@@ -10,7 +10,8 @@ This project measures which model does that best for Courtbee, on 40 hand-writte
 
 | Path | What it holds |
 |---|---|
-| `data/` | the test sentences and their expected reservations |
+| `data/cases.json` | the test set: 40 sentences and their expected reservations; nothing from it goes into the prompt |
+| `data/dev_cases.json` | the dev set: 17 other sentences with another date and other opening hours, for tuning the prompt |
 | `courtbee_voice_eval/` | the extraction call and the evaluation runner |
 | `results/` | one CSV per run |
 | `tests/` | unit tests |

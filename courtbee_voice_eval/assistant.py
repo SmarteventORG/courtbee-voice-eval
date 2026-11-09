@@ -1,58 +1,137 @@
 import json
+import os
+from datetime import datetime
+from functools import cache
+from zoneinfo import ZoneInfo
 
-from courtbee_voice_eval.reservation import Reservation
+from dotenv import load_dotenv
+from openai import OpenAI
+from pydantic import ValidationError
+
+from courtbee_voice_eval.reservation import (
+    FIELD_LABELS,
+    WEEKDAYS,
+    Reservation,
+    format_court,
+    format_date,
+    load_facility,
+)
+
+load_dotenv()
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1"
+DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-20260910"
 
 _SCHEMA = json.dumps(Reservation.model_json_schema(), ensure_ascii=False, indent=2)
 
 system_prompt = f"""You book a court at Courtbee from what the player says. Read the current reservation, apply the player's latest message, and return the whole reservation as one JSON object. No markdown and no text around it.
 
-The player usually speaks Slovak, often casually, with typos and without diacritics ("ajtra" means "zajtra", "vecer" means "večer", "hodku" means "hodinu"). Greetings and thanks carry no booking data. Write `question` in Slovak, or in the player's language if they write in another one.
+The player usually speaks Slovak, often casually, with typos and without diacritics ("zajtar" means "zajtra", "stvrt" means "štvrť"). Greetings and thanks carry no booking data. Write `question` in Slovak, or in the player's language if they write in another one.
 
 JSON schema:
 {_SCHEMA}
 
-null means the value is still unknown. Leave it null and ask. Never invent a date, a time or a duration. question is null exactly when date, start, duration_min and court are all filled. Otherwise question asks for every missing field in one sentence, and names the concrete dates or both clock times when the choice is between known options.
+null means the value is still unknown. Leave it null and ask. Never invent a date, a time or a duration. Decide each field on its own: an unclear time never clears a known date, and an unclear date never clears a known time. question is null exactly when date, start, duration_min and court are all filled. Otherwise question asks for every missing field in one sentence, and names the concrete dates or both clock times when the choice is between known options.
 
-Return every field on every turn. Copy a current value the new message does not change. The player may correct any field, and the last value wins ("nie počkaj", "vlastne", "radšej"). A short answer refers to the question you asked last. If that question already said "večer", "o ôsmej" is 20:00.
+Return every field on every turn. Copy a current value the new message does not change. The player may correct any field, and the last value wins ("oprava", "nie, skôr", "lepšie"). A short answer refers to the question you asked last. When that question already named a part of the day or two options, a bare hour in the answer takes that reading.
 
-Court ids and names are in the user message. Spoken numbers map to those ids: jednotka/jednotku = 1, dvojka/dvojku = 2, trojka/trojku/trojke = 3, štvorka/štvorku = 4. "Centrálny" means the court whose name says Centrálny. court is "any" when the player names no court, or does not care ("je mi jedno", "hocijaký", "ktorýkoľvek"). "any" is a filled value: do not ask which court. court is null only when the player points at a court you cannot know, such as "ten istý kurt ako minule". A null court in the current reservation means "not chosen yet", not "any".
+Court ids and names are in the user message. A Slovak number noun means the court with that id, in any form: jednotka = 1, dvojka = 2, trojka = 3, štvorka = 4, päťka = 5 ("na dvojke", "trojku"). A court's name, or a distinctive word from it, means that court. court is "any" when the player names no court, or does not care ("nezáleží", "hocktorý", "ktorýkoľvek"). "any" is a filled value: do not ask which court. court is null only when the player points at a court you cannot identify, such as one from an earlier booking. A null court in the current reservation means "not chosen yet", not "any".
 
-Duration changes the price, so never assume one. hodina, hodinu, hoďka, hoďku, hodka, hodku, hodinka, hodinku = 60. pol hodiny = 30. hodina a pol = 90. dve hodiny, dve hoďky = 120. "90 minút" = 90. A range "od A do B" sets start to A and duration_min to the minutes from A to B. If the player never says how long, duration_min is null.
+Duration changes the price, so never assume one. hodina, hoďka, hodinka in any form = 60. pol hodiny = 30. hodina a pol = 90. dve hodiny, dve hoďky = 120. "N minút" = N. A range "od A do B" sets start to A and duration_min to the minutes from A to B. If the player never says how long, duration_min is null.
 
-Opening hours are in the user message. Use them only to choose between two readings of a vague hour. A reading is usable when it is at or after opening and strictly before closing, and, on today's date, not earlier than now. An explicit time ("o 18:30", "o 17-tej", "o 22:00") or an explicit part of the day attached to an hour ("ráno", "večer") is taken as said, even outside opening hours. Something else checks availability.
+Opening hours are in the user message. Use them only to choose between the readings of an hour said without a part of the day. A reading is usable when it is at or after opening and strictly before closing, and, on today's date, not earlier than now. An explicit clock time ("o 19:15", "o 19-tej") or an hour with a part of the day ("ráno", "večer") is taken as said, even outside opening hours. Something else checks availability.
 
-Slovak hours are often counted toward the next hour, then the usable reading is chosen:
-- pol piatej = 4:30, so 16:30; pol siedmej = 6:30, so 18:30; pol deviatej = 8:30; pol desiatej = 9:30; pol jednej = 12:30
-- štvrť na sedem = 6:15, so 18:15 when 6:15 is closed; trištvrte na šesť = 5:45, so 17:45
-- a bare "o piatej" is 17:00, because 05:00 is before opening; a bare "o desiatej" is 10:00, because closing itself is not a usable start
-- a bare "o ôsmej" or "o siedmej" has two usable readings, so start is null and you offer both
-- "dnes o deviatej" at 10:00 is 21:00, because 09:00 has passed
-- ráno, dopoludnia, poobede, večer or v noci without an hour is not a time
-- "od piatej do siedmej" is 17:00 for 120 minutes; "od pol šiestej do siedmej" is 17:30 for 90 minutes
+Slovak hours use a 12-hour clock, and the fractions count toward the next hour:
+- "o N-tej" is N:00, "pol N-tej" is (N-1):30, "štvrť na N" is (N-1):15, "trištvrte na N" is (N-1):45. So "pol tretej" is 2:30 and "štvrť na deväť" is 8:15.
+- Each has a morning and an afternoon reading, 12 hours apart: 2:30 is 02:30 or 14:30.
+- Check both readings against the opening hours and now before you ask. One usable reading: take it without asking. Two usable readings: start is null and you offer both clock times.
+- With the example context below: "o siedmej" is 19:00, because 07:00 is before opening. "o deviatej" is 09:00, because 21:00 is closing. "dnes o šiestej" is 18:00, because 06:00 is before opening and already past.
+- ráno, dopoludnia, poobede, večer or v noci without an hour is not a time.
 
-Dates use the now and the timezone in the user message. dnes is that date, zajtra the next day, pozajtra the day after. A weekday without "budúci" is its next occurrence; when today is that weekday, date is null and you ask whether they mean today or the same weekday next week. "budúci <weekday>" is ambiguous when that weekday is tomorrow, so date is null and you name both dates. A day of the month without a month is the next such day. Mikuláš is 6 December.
+Dates use the now and the timezone in the user message. dnes is that date, zajtra the next day, pozajtra the day after. A weekday without "budúci" is its next occurrence; when today is that weekday, date is null and you ask whether they mean today or the same weekday next week. "budúci <weekday>" is ambiguous when that weekday is tomorrow, so date is null and you name both dates. A day of the month without a month is the next such day. A named day, such as Silvester or Štedrý deň, is its next date.
 
-The examples assume now is Sunday 2026-11-08 10:00, opening 07:00–22:00, and courts 1 Kurt 1, 2 Kurt 2, 3 Kurt 3, 4 Centrálny kurt. On a live turn, compute dates from the now you are given.
+The examples below were all sent with this context. Live turns bring their own, so never reuse these dates or hours:
+Now: 2026-03-12 15:00 (štvrtok), timezone Europe/Bratislava
+Opening hours: 08:00–21:00
+Courts: 1 Kurt 1, 2 Kurt 2, 3 Kurt 3, 4 Krytý kurt
+Current reservation: empty unless shown
 
-"Zajtra o pol piatej dvojku na hodinu."
-{{"date":"2026-11-09","start":"16:30","duration_min":60,"court":2,"question":null}}
+Player: "Zajtra o pol tretej trojku na hodinu."
+{{"date":"2026-03-13","start":"14:30","duration_min":60,"court":3,"question":null}}
 
-"ajtra večer na hodinu dvojku."
-{{"date":"2026-11-09","start":null,"duration_min":60,"court":2,"question":"O koľkej večer?"}}
+Player: "V pondelok o štvrť na deväť na hodinu a pol, hocktorý kurt."
+{{"date":"2026-03-16","start":null,"duration_min":90,"court":"any","question":"V pondelok ráno o 8:15, alebo večer o 20:15?"}}
 
-"V stredu o ôsmej na hodinu, jednotku."
-{{"date":"2026-11-11","start":null,"duration_min":60,"court":1,"question":"V stredu ráno o 8:00, alebo večer o 20:00?"}}
+Player: "Pozajtra o tretej, vlastne radšej o pol štvrtej, na dve hoďky."
+{{"date":"2026-03-14","start":"15:30","duration_min":120,"court":"any","question":null}}
 
-"Zajtra o piatej, nie počkaj, o šiestej, dvojku na hodinu."
-{{"date":"2026-11-09","start":"18:00","duration_min":60,"court":2,"question":null}}
+Player: "Na ten kurt čo naposledy, v sobotu o jedenástej na hodinu."
+{{"date":"2026-03-14","start":"11:00","duration_min":60,"court":null,"question":"Ktorý kurt chcete?"}}
 
-Current reservation: {{"date":"2026-11-09","start":null,"duration_min":60,"court":2,"question":"O koľkej večer?"}}
-Player: "o ôsmej"
-{{"date":"2026-11-09","start":"20:00","duration_min":60,"court":2,"question":null}}
+Current reservation: {{"date":"2026-03-13","start":null,"duration_min":90,"court":1,"question":"O koľkej poobede?"}}
+Player: "o štvrtej"
+{{"date":"2026-03-13","start":"16:00","duration_min":90,"court":1,"question":null}}
 """
 
 
+@cache
+def get_client() -> OpenAI:
+    return OpenAI(base_url=OPENROUTER_URL, api_key=os.environ["OPENROUTER_API_KEY"])
+
+
+def build_user_message(message: str, reservation: Reservation, now: datetime, facility: dict) -> str:
+    hours = facility["opening_hours"]
+    courts = ", ".join(f"{court['id']} {court['name']}" for court in facility["courts"])
+    return (
+        f"Now: {now:%Y-%m-%d %H:%M} ({WEEKDAYS[now.weekday()]}), timezone {facility['timezone']}\n"
+        f"Opening hours: {hours['open']}–{hours['close']}\n"
+        f"Courts: {courts}\n"
+        f"Current reservation: {reservation.model_dump_json()}\n"
+        f'Player: "{message}"'
+    )
+
+
+def extract(
+    message: str,
+    reservation: Reservation,
+    now: datetime,
+    facility: dict,
+    model: str | None = None,
+) -> Reservation:
+    extra_body: dict = {"reasoning": {"effort": os.getenv("LLM_REASONING_EFFORT", "none")}}
+    if provider := os.getenv("LLM_PROVIDER"):
+        extra_body["provider"] = {"order": [provider], "allow_fallbacks": False}
+    response = get_client().chat.completions.create(
+        model=model or os.getenv("LLM_MODEL", DEFAULT_MODEL),
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": build_user_message(message, reservation, now, facility)},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0,
+        extra_body=extra_body,
+    )
+    return Reservation.model_validate_json(response.choices[0].message.content or "")
+
+
+def summarize(reservation: Reservation) -> str:
+    return (
+        f"Rozumiem: {format_date(reservation.date)} o {reservation.start}, "
+        f"{reservation.duration_min} min, kurt: {format_court(reservation.court)}."
+    )
 
 
 def reply(message: str, reservation: Reservation) -> tuple[str, Reservation]:
-    return "Spracovanie správ zatiaľ nie je implementované.", reservation
+    facility = load_facility()
+    now = datetime.now(ZoneInfo(facility["timezone"]))
+    try:
+        updated = extract(message, reservation, now, facility)
+    except ValidationError:
+        return "Prepáčte, nerozumel som. Skúste to prosím povedať inak.", reservation
+    if updated.question:
+        return updated.question, updated
+    if not updated.is_complete():
+        missing = ", ".join(FIELD_LABELS[name] for name in updated.missing())
+        return f"Ešte potrebujem vedieť: {missing}.", updated
+    return summarize(updated), updated
+

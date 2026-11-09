@@ -9,6 +9,8 @@ FACILITY_PATH = Path(__file__).resolve().parent / "facility.json"
 
 WEEKDAYS = ["pondelok", "utorok", "streda", "štvrtok", "piatok", "sobota", "nedeľa"]
 
+FIELD_LABELS = {"date": "dátum", "start": "čas", "duration_min": "dĺžka", "court": "kurt"}
+
 
 class Reservation(BaseModel):
     date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
