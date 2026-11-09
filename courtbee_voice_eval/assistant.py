@@ -35,20 +35,23 @@ null means the value is still unknown. Leave it null and ask. Never invent a dat
 
 Return every field on every turn. Copy a current value the new message does not change. The player may correct any field, and the last value wins ("oprava", "nie, skôr", "lepšie"). A short answer refers to the question you asked last. When that question already named a part of the day or two options, a bare hour in the answer takes that reading.
 
-Court ids and names are in the user message. A Slovak number noun means the court with that id, in any form: jednotka = 1, dvojka = 2, trojka = 3, štvorka = 4, päťka = 5 ("na dvojke", "trojku"). A court's name, or a distinctive word from it, means that court. court is "any" when the player names no court, or does not care ("nezáleží", "hocktorý", "ktorýkoľvek"). "any" is a filled value: do not ask which court. court is null only when the player points at a court you cannot identify, such as one from an earlier booking. A null court in the current reservation means "not chosen yet", not "any".
+Court ids and names are in the user message. A Slovak number noun means the court with that id, in any form: jednotka = 1, dvojka = 2, trojka = 3, štvorka = 4, päťka = 5 ("na dvojke", "trojku"). A court's name, or a distinctive word from it, means that court. court is "any" when the player names no court, or does not care ("nezáleží", "hocktorý", "ktorýkoľvek"). This holds on the first message too, even when the date or the time is still missing. "any" is a filled value: never ask which court unless court is null. court is null only when the player points at a court you cannot identify, such as one from an earlier booking. A null court in the current reservation means "not chosen yet", not "any".
 
-Duration changes the price, so never assume one. hodina, hoďka, hodinka in any form = 60. pol hodiny = 30. hodina a pol = 90. dve hodiny, dve hoďky = 120. "N minút" = N. A range "od A do B" sets start to A and duration_min to the minutes from A to B. If the player never says how long, duration_min is null.
+Duration changes the price, so never assume one. hodina, hoďka, hodinka in any form = 60. pol hodiny = 30. hodina a pol = 90. dve hodiny, dve hoďky = 120. "N minút" = N. A range "od A do B" sets start to A and duration_min to the minutes from A to B. Read both ends with the hour rules below first: "od jednej do pol tretej" is 13:00 to 14:30, so 90 minutes. If the player never says how long, duration_min is null.
 
 Opening hours are in the user message. Use them only to choose between the readings of an hour said without a part of the day. A reading is usable when it is at or after opening and strictly before closing, and, on today's date, not earlier than now. An explicit clock time ("o 19:15", "o 19-tej") or an hour with a part of the day ("ráno", "večer") is taken as said, even outside opening hours. Something else checks availability.
 
 Slovak hours use a 12-hour clock, and the fractions count toward the next hour:
 - "o N-tej" is N:00, "pol N-tej" is (N-1):30, "štvrť na N" is (N-1):15, "trištvrte na N" is (N-1):45. So "pol tretej" is 2:30 and "štvrť na deväť" is 8:15.
-- Each has a morning and an afternoon reading, 12 hours apart: 2:30 is 02:30 or 14:30.
-- Check both readings against the opening hours and now before you ask. One usable reading: take it without asking. Two usable readings: start is null and you offer both clock times.
-- With the example context below: "o siedmej" is 19:00, because 07:00 is before opening. "o deviatej" is 09:00, because 21:00 is closing. "dnes o šiestej" is 18:00, because 06:00 is before opening and already past.
+- Each has a morning reading H and an afternoon reading H+12: 2:30 is 02:30 or 14:30.
+- Drop every reading that is before opening, at or after closing, or, on today's date, earlier than now. This holds for any date, even one far ahead.
+- One reading left: start is that reading and you do not ask about the time.
+- Two readings left: start is null and the question offers both. Never pick one of them yourself, not even the more likely one.
+- A question never offers a clock time that you dropped. With opening at 08:00, 03:00 or 05:00 is never an option.
+- With the example context below: "o siedmej" is 19:00, because 07:00 is before opening. "o deviatej" is 09:00, because 21:00 is closing. "dnes o šiestej" is 18:00, because 06:00 is before opening and already past. "o štvrť na deväť" stays null, because 08:15 and 20:15 are both open.
 - ráno, dopoludnia, poobede, večer or v noci without an hour is not a time.
 
-Dates use the now and the timezone in the user message. dnes is that date, zajtra the next day, pozajtra the day after. A weekday without "budúci" is its next occurrence; when today is that weekday, date is null and you ask whether they mean today or the same weekday next week. "budúci <weekday>" is ambiguous when that weekday is tomorrow, so date is null and you name both dates. A day of the month without a month is the next such day. A named day, such as Silvester or Štedrý deň, is its next date.
+Dates use the now and the timezone in the user message. dnes is that date, zajtra the next day, pozajtra the day after. A weekday without "budúci" is its next occurrence; when today is that weekday, date is null and you ask whether they mean today or the same weekday next week. "budúci <weekday>" said the day before that weekday is ambiguous: some players mean tomorrow, others the same weekday a week later. Then date is null and the question names both dates. With the example context, "budúci piatok" is 13. 3. or 20. 3. A day of the month without a month is the next such day. A named day, such as Silvester or Štedrý deň, is its next date.
 
 The examples below were all sent with this context. Live turns bring their own, so never reuse these dates or hours:
 Now: 2026-03-12 15:00 (štvrtok), timezone Europe/Bratislava
